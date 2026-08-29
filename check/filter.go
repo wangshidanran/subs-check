@@ -8,15 +8,13 @@ import (
 	"github.com/beck-8/subs-check/config"
 )
 
-// FilterResults 根据配置的正则表达式过滤节点
-// 只有节点名称匹配任一正则表达式的节点才会被保留
-func FilterResults(results []Result) []Result {
-	// 如果没有配置过滤规则，直接返回所有结果
+// CompileFilterPatterns compiles the configured filter regex list.
+// Invalid patterns are dropped with a warning; returns an empty slice
+// when filtering is disabled or all patterns failed to compile.
+func CompileFilterPatterns() []*regexp.Regexp {
 	if len(config.GlobalConfig.Filter) == 0 {
-		return results
+		return nil
 	}
-
-	// 编译所有正则表达式
 	var patterns []*regexp.Regexp
 	for _, pattern := range config.GlobalConfig.Filter {
 		re, err := regexp.Compile(pattern)
@@ -26,33 +24,47 @@ func FilterResults(results []Result) []Result {
 		}
 		patterns = append(patterns, re)
 	}
-
-	// 如果所有正则都编译失败，返回所有结果
-	if len(patterns) == 0 {
+	if len(patterns) == 0 && len(config.GlobalConfig.Filter) > 0 {
 		slog.Warn("所有过滤正则表达式编译失败，跳过过滤")
+	}
+	return patterns
+}
+
+// MatchesFilter reports whether r's rendered name (without speed tag)
+// matches any pattern. An empty pattern slice counts as "passes".
+func MatchesFilter(r Result, patterns []*regexp.Regexp) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	if r.Proxy == nil {
+		return false
+	}
+	name := RenderName(r, false)
+	for _, re := range patterns {
+		if re.MatchString(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterResults 根据配置的正则表达式过滤节点。
+//
+// 只有渲染后的展示名(不含速度标签)匹配任一正则的节点才会被保留。
+// 这里用 RenderName(r, false) 而不是 r.Proxy["name"] 是为了让 filter 能看到
+// 国家+媒体标签的完整视图,同时保持 proxy["name"] 不被修改。
+func FilterResults(results []Result) []Result {
+	patterns := CompileFilterPatterns()
+	if len(patterns) == 0 {
 		return results
 	}
 
 	slog.Info(fmt.Sprintf("应用节点过滤规则，共 %d 个正则表达式", len(patterns)))
 
-	// 过滤结果
 	var filtered []Result
-	for _, result := range results {
-		if result.Proxy == nil {
-			continue
-		}
-
-		name, ok := result.Proxy["name"].(string)
-		if !ok {
-			continue
-		}
-
-		// 检查节点名称是否匹配任一正则表达式
-		for _, re := range patterns {
-			if re.MatchString(name) {
-				filtered = append(filtered, result)
-				break
-			}
+	for _, r := range results {
+		if MatchesFilter(r, patterns) {
+			filtered = append(filtered, r)
 		}
 	}
 

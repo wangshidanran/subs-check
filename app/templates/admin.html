@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Subs Check 配置管理</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/editor/editor.main.css" rel="stylesheet">
+    <link href="/static/bootstrap/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/monaco/vs/editor/editor.main.css" rel="stylesheet">
     <style>
         :root {
             --bg-primary: #f0f2f5;
@@ -31,26 +31,42 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
 
-        /* 主内容行等高 */
+        /* 主内容行 — 两列 card 等高。卡片用显式 vh-calc 高度锚定,内部再用
+           flex 把 logs / editor 撑满剩余空间,避免任何一列的"自然高度"反
+           过来拉扯另一列导致空白。 */
         .main-row { display: flex; flex-wrap: wrap; }
         .main-row > [class*="col-"] { display: flex; }
         .main-row .card { display: flex; flex-direction: column; width: 100%; }
-        .main-row .card > .card-body { flex: 1 1 auto; overflow: hidden; }
+        /* card-body 成为 flex column 容器,让 logs-container / editor 可以
+           flex:1 填满剩余空间(扣除同卡内的 header 和 progress-section)。 */
+        .main-row .card > .card-body {
+            flex: 1 1 auto;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
 
-        /* 编辑器样式 - 填满卡片剩余空间 */
+        /* editor-wrapper 用 flex 拿 card-body 的剩余高度;#editor 用 absolute
+           充满 wrapper,这样 Monaco 在初始化时能立即测出明确的尺寸,不会因
+           为嵌套 flex 测量时机的问题渲染成空白。 */
+        .editor-wrapper {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
         #editor {
-            height: 100%;
-            min-height: 300px;
+            position: absolute;
+            inset: 0;
             border: none;
             margin-bottom: 0;
         }
 
-        .editor-wrapper { position: relative; height: 100%; }
-
-        /* 日志容器样式 - 填满卡片剩余空间 */
+        /* 日志容器样式 - flex:1 填满 card-body 剩余空间 */
         .logs-container {
-            height: 100%;
-            min-height: 250px;
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
             background-color: #1e1e2e;
             padding: 14px;
@@ -63,17 +79,31 @@
             border-radius: 0;
         }
 
-        /* 大屏时给左侧日志区一个合理的高度，右侧编辑器通过flex自动对齐 */
+        /* 桌面: 两列 card 锁死到 vh-calc,同等高度,内部 flex 自分配。
+           这套数跟老 logs-container 的 calc(100vh-440px) 接近(减 300 后
+           再减 header ~36 + progress ~90 ≈ vh-426),视觉上差不多。 */
         @media (min-width: 992px) {
-            .logs-container { height: calc(100vh - 440px); }
+            .main-row .card {
+                height: calc(100vh - 300px);
+                min-height: 400px;
+            }
         }
 
-        /* 响应式调整 */
+        @media (min-width: 1600px) {
+            .main-row .card {
+                height: calc(100vh - 350px);
+            }
+        }
+
+        /* 响应式调整: 窄屏 block 堆叠没有 flex 父容器,直接给 editor-wrapper
+           和 logs-container 显式高度,不靠 flex。#editor 还是 absolute 充满
+           wrapper,所以高度落在 wrapper 上而不是 #editor 自己。 */
         @media (max-width: 991px) {
             body { padding: 12px; }
             .main-row { display: block; }
-            #editor { height: calc(100vh - 285px); }
-            .logs-container { height: calc(100vh - 390px); }
+            .main-row .card { height: auto; }
+            .editor-wrapper { flex: none; height: calc(100vh - 285px); }
+            .logs-container { flex: none; height: calc(100vh - 390px); }
             .card-header { padding: 0.5rem 0.75rem; }
             .card-body { padding: 0.75rem; }
             .card { margin-bottom: 15px; }
@@ -81,8 +111,8 @@
 
         @media (max-width: 768px) {
             body { padding: 8px; }
-            #editor { height: 420px; }
-            .logs-container { height: 350px; }
+            .editor-wrapper { flex: none; height: 420px; }
+            .logs-container { flex: none; height: 350px; }
             .status-item { margin-bottom: 8px; }
             .config-path {
                 max-width: 100%;
@@ -93,10 +123,6 @@
             .card { margin-bottom: 12px; }
             .progress-section { padding: 10px; }
             .phase-steps { flex-wrap: wrap; gap: 6px; }
-        }
-
-        @media (min-width: 1600px) {
-            .logs-container { height: calc(100vh - 490px); }
         }
 
         /* 卡片样式 */
@@ -463,11 +489,11 @@
                                 <span class="phase-count" id="phaseCount1"></span>
                             </div>
                             <div id="phaseStep2" class="phase-step" data-phase="2">
-                                <span class="phase-icon"><i class="bi bi-speedometer"></i></span>测速
+                                <span class="phase-icon"><i class="bi bi-film"></i></span>流媒体+重命名
                                 <span class="phase-count" id="phaseCount2"></span>
                             </div>
                             <div id="phaseStep3" class="phase-step" data-phase="3">
-                                <span class="phase-icon"><i class="bi bi-film"></i></span>流媒体
+                                <span class="phase-icon"><i class="bi bi-speedometer"></i></span>测速
                                 <span class="phase-count" id="phaseCount3"></span>
                             </div>
                         </div>
@@ -522,47 +548,62 @@
     </div>
 
     <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/bootstrap/bootstrap.bundle.min.js"></script>
 
     <!-- Monaco Editor -->
-    <script>var require = { paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs' } };</script>
-    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/loader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/editor/editor.main.nls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/editor/editor.main.js"></script>
+    <script>var require = { paths: { 'vs': '/static/monaco/vs' } };</script>
+    <script src="/static/monaco/vs/loader.js"></script>
+    <script src="/static/monaco/vs/editor/editor.main.nls.js"></script>
+    <script src="/static/monaco/vs/editor/editor.main.js"></script>
 
     <script>
         let editor;
-        // 阶段记录：保存每个阶段的最终结果
-        let phaseResults = { 1: null, 2: null, 3: null };
-        let lastPhase = 0;
-
         const PHASE_LABELS = {
             1: { name: '测活', countLabel: '存活' },
-            2: { name: '测速', countLabel: '通过' },
-            3: { name: '流媒体', countLabel: '完成' }
+            2: { name: '流媒体+重命名', countLabel: '完成' },
+            3: { name: '测速', countLabel: '通过' }
+        };
+
+        // 缓存高频访问的 DOM 元素
+        const dom = {
+            apiKey: document.getElementById('apiKey'),
+            toggleApiKey: document.getElementById('toggleApiKey'),
+            saveApiKey: document.getElementById('saveApiKey'),
+            logs: document.getElementById('logs'),
+            phaseSteps: document.getElementById('phaseSteps'),
+            progressText: document.getElementById('progressText'),
+            progressPercent: document.getElementById('progressPercent'),
+            processPercent: document.getElementById('processPercent'),
+            progressBarTotal: document.getElementById('progressBarTotal'),
+            progressBarSuccess: document.getElementById('progressBarSuccess'),
+            successLabel: document.getElementById('successLabel'),
+            successText: document.getElementById('successText'),
+            statusContainer: document.getElementById('statusContainer'),
+            statusIcon: document.getElementById('statusIcon'),
+            statusText: document.getElementById('nextCheckTime'),
+            versionInfo: document.getElementById('versionInfo'),
         };
 
         // 初始化API密钥
         const storedApiKey = localStorage.getItem('apiKey') || '';
-        document.getElementById('apiKey').value = storedApiKey;
+        dom.apiKey.value = storedApiKey;
 
         // 切换API密钥可见性
-        document.getElementById('toggleApiKey').addEventListener('click', function() {
-            const apiKeyInput = document.getElementById('apiKey');
+        dom.toggleApiKey.addEventListener('click', function() {
             const icon = this.querySelector('i');
 
-            if (apiKeyInput.type === 'password') {
-                apiKeyInput.type = 'text';
+            if (dom.apiKey.type === 'password') {
+                dom.apiKey.type = 'text';
                 icon.className = 'bi bi-eye';
             } else {
-                apiKeyInput.type = 'password';
+                dom.apiKey.type = 'password';
                 icon.className = 'bi bi-eye-slash';
             }
         });
 
         // 保存API密钥到本地存储
-        document.getElementById('saveApiKey').addEventListener('click', function() {
-            const apiKey = document.getElementById('apiKey').value.trim();
+        dom.saveApiKey.addEventListener('click', function() {
+            const apiKey = dom.apiKey.value.trim();
             localStorage.setItem('apiKey', apiKey);
 
             const button = this;
@@ -787,37 +828,41 @@
                 return response.json();
             })
             .then(data => {
-                const logsContainer = document.getElementById('logs');
                 if (data.error) {
-                    logsContainer.textContent = '加载日志失败: ' + data.error;
+                    dom.logs.textContent = '加载日志失败: ' + data.error;
                 } else {
-                    const isScrolledToBottom = logsContainer.scrollHeight - logsContainer.clientHeight <= logsContainer.scrollTop + 1;
-                    logsContainer.innerHTML = '';
+                    const isScrolledToBottom = dom.logs.scrollHeight - dom.logs.clientHeight <= dom.logs.scrollTop + 1;
+                    const fragment = document.createDocumentFragment();
                     data.logs.forEach(log => {
                         const logLine = document.createElement('div');
                         logLine.innerHTML = colorizeLog(log);
-                        logsContainer.appendChild(logLine);
+                        fragment.appendChild(logLine);
                     });
+                    dom.logs.innerHTML = '';
+                    dom.logs.appendChild(fragment);
                     if (isScrolledToBottom) {
-                        logsContainer.scrollTop = logsContainer.scrollHeight;
+                        dom.logs.scrollTop = dom.logs.scrollHeight;
                     }
                 }
                 return data;
             })
             .catch(error => {
                 if (error.message !== '未授权') {
-                    document.getElementById('logs').textContent = '加载日志失败: ' + error.message;
+                    dom.logs.textContent = '加载日志失败: ' + error.message;
                 }
             });
         }
 
+        function escapeHtml(str) {
+            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
         // 为日志添加颜色
+        const LOG_LEVEL_CLASS = { INF: 'log-info', ERR: 'log-error', WRN: 'log-warn', DBG: 'log-debug' };
         function colorizeLog(log) {
+            log = escapeHtml(log);
             log = log.replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/, '<span class="log-time">$1</span>');
-            log = log.replace(/\bINF\b/, '<span class="log-info">INF</span>');
-            log = log.replace(/\bERR\b/, '<span class="log-error">ERR</span>');
-            log = log.replace(/\bWRN\b/, '<span class="log-warn">WRN</span>');
-            log = log.replace(/\bDBG\b/, '<span class="log-debug">DBG</span>');
+            log = log.replace(/\b(INF|ERR|WRN|DBG)\b/, (m) => '<span class="' + LOG_LEVEL_CLASS[m] + '">' + m + '</span>');
             return log;
         }
 
@@ -832,42 +877,44 @@
             });
         });
 
-        // 更新阶段步骤指示器
-        function updatePhaseSteps(phase, available, total) {
-            const stepsContainer = document.getElementById('phaseSteps');
+        // 缓存阶段步骤 DOM 元素
+        const phaseStepEls = [null, document.getElementById('phaseStep1'), document.getElementById('phaseStep2'), document.getElementById('phaseStep3')];
+        const phaseCountEls = [null, document.getElementById('phaseCount1'), document.getElementById('phaseCount2'), document.getElementById('phaseCount3')];
 
-            if (phase === 0) {
-                stepsContainer.style.display = 'none';
+        // 更新阶段步骤指示器
+        function updatePhaseSteps(phase, available, total, phaseResults) {
+            // 检查是否有任何阶段结果
+            const hasResults = phaseResults && (phaseResults['1'] || phaseResults['2'] || phaseResults['3']);
+
+            if (phase === 0 && !hasResults) {
+                dom.phaseSteps.style.display = 'none';
                 return;
             }
 
-            stepsContainer.style.display = 'flex';
-
-            // 当阶段切换时，保存上一阶段的结果
-            if (phase !== lastPhase && lastPhase > 0 && lastPhase < phase) {
-                // 上一阶段结束，记录结果
-                const prevCount = document.getElementById('phaseCount' + lastPhase);
-                if (prevCount && prevCount.textContent) {
-                    phaseResults[lastPhase] = prevCount.textContent;
-                }
-            }
-            lastPhase = phase;
+            dom.phaseSteps.style.display = 'flex';
 
             for (let i = 1; i <= 3; i++) {
-                const step = document.getElementById('phaseStep' + i);
-                const count = document.getElementById('phaseCount' + i);
+                const step = phaseStepEls[i];
+                const count = phaseCountEls[i];
+                const label = PHASE_LABELS[i] ? PHASE_LABELS[i].countLabel : '';
+                const result = phaseResults ? phaseResults[String(i)] : null;
 
                 step.classList.remove('active', 'done');
 
                 if (i < phase) {
+                    // 已完成的阶段：用后端保存的结果
                     step.classList.add('done');
-                    if (phaseResults[i]) {
-                        count.textContent = phaseResults[i];
+                    if (result) {
+                        count.textContent = label + ': ' + result.available + '/' + result.total;
                     }
                 } else if (i === phase) {
+                    // 当前阶段：用实时数据
                     step.classList.add('active');
-                    const label = PHASE_LABELS[phase] ? PHASE_LABELS[phase].countLabel : '';
                     count.textContent = label + ': ' + available + '/' + total;
+                } else if (phase === 0 && result) {
+                    // 空闲时：显示上次结果
+                    step.classList.add('done');
+                    count.textContent = label + ': ' + result.available + '/' + result.total;
                 } else {
                     count.textContent = '';
                 }
@@ -875,44 +922,94 @@
         }
 
         // 更新进度条
-        function updateProgressBar(total, processed, available, phase) {
+        function updateProgressBar(total, processed, available, phase, phaseResults) {
             const percentTotal = total > 0 ? (processed / total * 100).toFixed(1) : 0;
 
-            const progressText = document.getElementById('progressText');
-            progressText.textContent = processed + '/' + total;
-
-            const progressPercent = document.getElementById('progressPercent');
-            progressPercent.textContent = percentTotal + '%';
-
-            const progressBarTotal = document.getElementById('progressBarTotal');
-            progressBarTotal.style.width = percentTotal + '%';
+            dom.progressText.textContent = processed + '/' + total;
+            dom.progressPercent.textContent = percentTotal + '%';
+            dom.progressBarTotal.style.width = percentTotal + '%';
 
             const percentSuccess = total > 0 ? (available / total * 100).toFixed(1) : 0;
-
-            const processPercent = document.getElementById('processPercent');
-            processPercent.textContent = percentSuccess + '%';
+            dom.processPercent.textContent = percentSuccess + '%';
 
             // 显示阶段对应的标签
             const label = (phase && PHASE_LABELS[phase]) ? PHASE_LABELS[phase].countLabel : '成功节点';
-            const successLabel = document.getElementById('successLabel');
-            const successTextEl = document.getElementById('successText');
-            if (successLabel && successTextEl) {
-                successLabel.childNodes[0].textContent = label + ': ';
+            if (dom.successLabel && dom.successText) {
+                dom.successLabel.childNodes[0].textContent = label + ': ';
                 if (available > 0) {
-                    successTextEl.innerHTML = '<span class="success-highlight">' + available + '</span>/' + total;
+                    dom.successText.innerHTML = '<span class="success-highlight">' + available + '</span>/' + total;
                 } else {
-                    successTextEl.textContent = available + '/' + total;
+                    dom.successText.textContent = available + '/' + total;
                 }
             }
 
-            const progressBarSuccess = document.getElementById('progressBarSuccess');
-            progressBarSuccess.style.width = percentSuccess + '%';
+            dom.progressBarSuccess.style.width = percentSuccess + '%';
 
             // 更新阶段指示器
-            updatePhaseSteps(phase, available, total);
+            updatePhaseSteps(phase, available, total, phaseResults);
+        }
+
+        // 重置进度条到初始状态
+        function resetProgress() {
+            dom.progressText.textContent = 'N/A';
+            dom.progressPercent.textContent = 'N/A';
+            dom.processPercent.textContent = 'N/A';
+            dom.progressBarTotal.style.width = '0%';
+            dom.progressBarSuccess.style.width = '0%';
+            if (dom.successLabel) {
+                dom.successLabel.childNodes[0].textContent = '成功节点: ';
+                dom.successText.textContent = 'N/A';
+            }
         }
 
         // 更新状态
+        // Pipeline stages run concurrently, so rows stay "active" with live counts.
+        // `done` counts items that finished the stage; `pass` counts items that moved on.
+        // When speed testing is off, the speed row stays visible but inactive with an
+        // empty counter — matching the legacy "grayed, no data" look rather than
+        // hiding the row outright (which shifted the layout).
+        function updatePipelineSteps(p, hasSpeed) {
+            dom.phaseSteps.style.display = 'flex';
+            const rows = [
+                { idx: 1, label: '存活', pass: p.alivePass,  total: p.total, active: true },
+                { idx: 2, label: '通过', pass: p.filterPass, total: p.alivePass, active: true },
+                { idx: 3, label: '通过', pass: p.speedPass, total: p.filterPass, active: hasSpeed },
+            ];
+            for (const r of rows) {
+                const step = phaseStepEls[r.idx];
+                const count = phaseCountEls[r.idx];
+                step.classList.remove('active', 'done');
+                if (r.active) {
+                    step.classList.add('active');
+                    count.textContent = r.label + ': ' + r.pass + '/' + r.total;
+                } else {
+                    count.textContent = '';
+                }
+            }
+        }
+
+        function updatePipelineBar(p, hasSpeed) {
+            const total = p.total;
+            const processed = p.aliveDone;                         // how far through input
+            const success = hasSpeed ? p.speedPass : p.filterPass; // end-to-end pass count
+
+            const pctProcessed = total > 0 ? (processed / total * 100).toFixed(1) : 0;
+            dom.progressText.textContent = processed + '/' + total;
+            dom.progressPercent.textContent = pctProcessed + '%';
+            dom.progressBarTotal.style.width = pctProcessed + '%';
+
+            const pctSuccess = total > 0 ? (success / total * 100).toFixed(1) : 0;
+            dom.processPercent.textContent = pctSuccess + '%';
+            dom.progressBarSuccess.style.width = pctSuccess + '%';
+
+            if (dom.successLabel && dom.successText) {
+                dom.successLabel.childNodes[0].textContent = '通过: ';
+                dom.successText.innerHTML = success > 0
+                    ? '<span class="success-highlight">' + success + '</span>/' + total
+                    : success + '/' + total;
+            }
+        }
+
         function updateStatus() {
             fetch('/api/status', {
                 headers: addApiKeyHeader()
@@ -923,61 +1020,38 @@
             })
             .then(data => {
                 if (data) {
-                    const statusContainer = document.getElementById('statusContainer');
-                    const statusIcon = document.getElementById('statusIcon');
-                    const statusText = document.getElementById('nextCheckTime');
-
                     if (data.checking) {
-                        statusContainer.className = 'text-primary';
-                        statusIcon.className = 'bi bi-arrow-repeat me-1 rotate-animation';
-                        const phaseName = (data.phase && PHASE_LABELS[data.phase]) ? PHASE_LABELS[data.phase].name : '检测';
-                        statusText.textContent = '正在' + phaseName + '中...';
+                        dom.statusContainer.className = 'text-primary';
+                        dom.statusIcon.className = 'bi bi-arrow-repeat me-1 rotate-animation';
+                        dom.statusText.textContent = '正在检测中...';
 
-                        updateProgressBar(data.proxyCount, data.progress, data.available, data.phase);
-                    } else {
-                        statusContainer.className = 'text-success';
-                        statusIcon.className = 'bi bi-check-circle me-1';
-                        statusText.textContent = '空闲';
-
-                        // 重置阶段状态
-                        phaseResults = { 1: null, 2: null, 3: null };
-                        lastPhase = 0;
-                        updatePhaseSteps(0, 0, 0);
-
-                        document.getElementById('progressText').textContent = 'N/A';
-                        document.getElementById('progressPercent').textContent = 'N/A';
-                        document.getElementById('processPercent').textContent = 'N/A';
-                        document.getElementById('progressBarTotal').style.width = '0%';
-                        document.getElementById('progressBarSuccess').style.width = '0%';
-
-                        const successLabel = document.getElementById('successLabel');
-                        if (successLabel) {
-                            successLabel.childNodes[0].textContent = '成功节点: ';
-                            document.getElementById('successText').textContent = 'N/A';
+                        if (data.pipeline) {
+                            updatePipelineBar(data.pipeline, !!data.hasSpeedTest);
+                            updatePipelineSteps(data.pipeline, !!data.hasSpeedTest);
+                        } else {
+                            // legacy fallback (older server)
+                            updateProgressBar(data.proxyCount, data.progress, data.available, data.phase, data.phaseResults);
                         }
+                    } else {
+                        dom.statusContainer.className = 'text-success';
+                        dom.statusIcon.className = 'bi bi-check-circle me-1';
+                        dom.statusText.textContent = '空闲';
+
+                        updatePhaseSteps(0, 0, 0, data.phaseResults);
+                        resetProgress();
                     }
                 }
             })
             .catch(error => {
                 console.error('获取状态失败:', error);
-                const statusContainer = document.getElementById('statusContainer');
-                const statusIcon = document.getElementById('statusIcon');
-                const statusText = document.getElementById('nextCheckTime');
-
-                statusContainer.className = 'text-danger';
-                statusIcon.className = 'bi bi-exclamation-triangle me-1';
-                statusText.textContent = '获取状态失败';
-
-                document.getElementById('progressText').textContent = 'N/A';
-                document.getElementById('progressPercent').textContent = 'N/A';
-                document.getElementById('processPercent').textContent = 'N/A';
-                document.getElementById('progressBarTotal').style.width = '0%';
-                document.getElementById('progressBarSuccess').style.width = '0%';
+                dom.statusContainer.className = 'text-danger';
+                dom.statusIcon.className = 'bi bi-exclamation-triangle me-1';
+                dom.statusText.textContent = '获取状态失败';
+                resetProgress();
             });
         }
 
         // 初始加载
-        loadConfig();
         updateStatus();
         loadLogs();
 
@@ -985,7 +1059,7 @@
         const apiKey = localStorage.getItem('apiKey');
         if (!apiKey) {
             alert('请先输入API密钥以使用本系统');
-            document.getElementById('apiKey').focus();
+            dom.apiKey.focus();
         }
 
         // 定时刷新
@@ -1000,19 +1074,17 @@
             .then(response => response.json())
             .then(data => {
                 if (data && data.version) {
-                    document.getElementById('versionInfo').textContent = '版本: ' + data.version;
+                    dom.versionInfo.textContent = '版本: ' + data.version;
                 }
             })
             .catch(error => {
                 console.error('获取版本信息失败:', error);
-                document.getElementById('versionInfo').textContent = '版本: 未知';
+                dom.versionInfo.textContent = '版本: 未知';
             });
         }
 
         getVersionInfo();
     </script>
 
-    <!-- YAML解析库 -->
-    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 </body>
 </html>

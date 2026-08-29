@@ -3,6 +3,7 @@
 # 兼容 bash / sh / dash
 # 用法: curl -fsSL https://raw.githubusercontent.com/beck-8/subs-check/master/install.sh | bash
 #   或: wget -qO- https://raw.githubusercontent.com/beck-8/subs-check/master/install.sh | bash
+# 加速: bash <(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/beck-8/subs-check/master/install.sh) https://ghfast.top/
 
 set -e
 
@@ -13,7 +14,7 @@ BINARY_NAME="subs-check"
 SERVICE_NAME="subs-check"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
-GITHUB_PROXY=""
+GITHUB_PROXY="${1:-}"
 
 # ============ 运行状态 ============
 HAS_SYSTEMD=1
@@ -170,7 +171,8 @@ setup_systemd() {
     cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Subs Check - 订阅检测转换工具
-After=network.target
+After=network-online.target
+Wants=network-online.target
 StartLimitBurst=5
 StartLimitIntervalSec=60
 

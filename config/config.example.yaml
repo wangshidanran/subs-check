@@ -3,11 +3,15 @@ print-progress: true
 
 # 并发线程数（测活阶段使用此值）
 concurrent: 50
+# 流媒体检测并发数（默认等于concurrent）
+media-concurrent: 20
 # 测速并发数（默认等于concurrent）
 # 建议设置较低值，避免并发抢带宽导致测速不准
 speed-concurrent: 20
-# 流媒体检测并发数（默认等于concurrent）
-media-concurrent: 20
+# 是否打乱节点的测试顺序（仅影响测试先后，输出顺序保持订阅原序不变）
+# 开启后可避免同机场相邻节点、同节点的多个协议被扎堆在同一时间窗口测试，
+# 从而降低相邻IP一起出问题、互相干扰的概率
+shuffle-test-order: true
 # 检查间隔(分钟)
 # 必须大于0，小于等于0会设置间隔1分钟
 check-interval: 120
@@ -62,7 +66,9 @@ node-type:
 
 # 节点名称过滤，只有匹配任一正则表达式的节点才会被保留
 # 如果为空则不过滤，所有通过测试的节点都会保留
-# 注意：过滤是在测速和流媒体检测完成后进行的，节点名称已包含检测结果标签
+# 注意：过滤在流媒体检测+重命名之后、测速之前进行。此时节点名称已包含
+#       国家和媒体标签（如 NF-US、GPT⁺、IP 风险百分比），但**不包含速度标签**。
+#       速度标签在测速通过后追加，不参与过滤。
 filter:
   # === 按地区过滤 ===
   # - "香港|HK|Hong Kong"        # 保留香港节点
@@ -75,10 +81,12 @@ filter:
   #
   # === 按平台解锁过滤（需开启 media-check）===
   # - "GPT⁺|GPT"                 # 保留解锁 OpenAI 的节点
-  # - "NF"                       # 保留解锁 Netflix 的节点
+  # - "NF"                       # 保留解锁 Netflix 的节点（NF=仅自制剧, NF-US=全解锁）
   # - "GM"                       # 保留解锁 Gemini 的节点
-  # - "D\\+"                     # 保留解锁 Disney+ 的节点
+  # - "D\\+"                     # 保留解锁 Disney+ 的节点（D+=解锁但未知地区, D+-US=解锁并知道地区）
   # - "YT-"                      # 保留解锁 YouTube Premium 的节点
+  # - "CL-"                      # 保留解锁 Claude 的节点
+  # - "SP-"                      # 保留解锁 Spotify 的节点
 
 # 是否开启流媒体检测，其中IP欺诈依赖重命名
 media-check: false
@@ -92,10 +100,15 @@ platforms:
   - disney
   - openai
   - gemini
+  - claude
+  - spotify
 
-# 保留之前测试成功的节点
-# 如果为true，则保留之前测试成功的节点，这样就不会因为上游链接更新，导致可用的节点被清除掉
-keep-success-proxies: false
+# 保留最近N天内可用的历史节点（天）
+# 开启后每次检测会保存节点快照到 output/history/ 目录
+# 下次检测时会将历史节点加入待测队列重新检测，通过的节点才会保留到输出中
+# 过期的历史文件会自动清理
+# 0 = 关闭此功能
+keep-days: 0
 
 # 输出目录
 # 如果为空，则为程序所在目录的config目录
@@ -193,6 +206,8 @@ s3-bucket-lookup: "auto"
 
 # 重试次数(获取订阅失败后重试次数)
 sub-urls-retry: 3
+# 订阅下载并发数(控制同时拉取多少个订阅链接)
+sub-urls-concurrent: 20
 # 获取订阅时使用的UA；如果设置random将会使用随机UA获取订阅
 # sub-urls-get-ua: "random"
 sub-urls-get-ua: "clash.meta (https://github.com/beck-8/subs-check)"
@@ -206,6 +221,24 @@ github-proxy: ""
 proxy: ""
 # 符合条件节点数量的占比，低于此值会将订阅链接打印出来，用于排查质量差的订阅
 success-rate: 0
+
+# 是否允许 IPv6/AAAA 解析和连接
+ipv6: true
+
+# DNS 配置，支持 udp/tcp/tls/https/quic 协议
+# enable=false 使用系统 DNS；enable=true 使用以下自定义 DNS
+# enable=true 三字段可留空，按 proxy-server-nameserver→nameserver→default-nameserver 链回落
+# default-nameserver 用作 bootstrap 必须是纯 IP
+dns:
+  enable: false
+  proxy-server-nameserver:
+    - https://dns.alidns.com/dns-query
+  nameserver:
+    - https://dns.alidns.com/dns-query
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+
 # 远程订阅清单地址；用于集中维护多个订阅链接，避免频繁修改本地文件
 # 支持两种格式：
 # 1) 纯文本：按行分隔，支持 # 注释与空行
@@ -225,15 +258,17 @@ sub-urls:
   # - https://example.com/sub2.txt
   # - https://example.com/sub?token=43fa8f0dc9bb00dcfec2afb21b14378a
   # - https://example.com/sub?token=43fa8f0dc9bb00dcfec2afb21b14378a?flag=clash.meta
+    # 所有时间占位符均支持 ±N 天偏移，例如 {Ymd-1} 表示昨天、{Y-m-d+1} 表示明天
   # - https://raw.githubusercontent.com/example/repo/main/config/{Ymd}.yaml
   # - https://raw.githubusercontent.com/example/repo/main/daily/daily-{Y}-{m}-{d}.yaml
+  # - https://raw.githubusercontent.com/example/repo/main/config/{Ymd-1}.yaml
+  # - https://raw.githubusercontent.com/example/repo/main/daily/daily-{Y-m-d+1}.yaml
   # - https://example.com/sub.txt#我是备注我是备注
   # 打开这个就可以把上次可用的节点再次测一次
   # - "http://127.0.0.1:8199/sub/all.yaml"
   - "https://raw.githubusercontent.com/firefoxmmx2/v2rayshare_subcription/main/subscription/clash_sub.yaml"
   - "https://raw.githubusercontent.com/Q3dlaXpoaQ/V2rayN_Clash_Node_Getter/refs/heads/main/APIs/sc0.yaml"
   - "https://raw.githubusercontent.com/mahdibland/SSAggregator/master/sub/sub_merge_yaml.yml"
-  - "https://raw.githubusercontent.com/snakem982/proxypool/main/source/clash-meta.yaml"
   - "https://raw.githubusercontent.com/chengaopan/AutoMergePublicNodes/master/list.yml"
   - "https://raw.githubusercontent.com/zhangkaiitugithub/passcro/main/speednodes.yaml"
   - "https://raw.githubusercontent.com/aiboboxx/v2rayfree/refs/heads/main/README.md"
